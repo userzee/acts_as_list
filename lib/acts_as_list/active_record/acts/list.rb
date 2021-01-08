@@ -353,38 +353,42 @@ module ActiveRecord
             scope = scope.where("#{quoted_table_name}.#{self.class.primary_key} != ?", avoid_id)
           end
 
-          if old_position < new_position
-            # Decrement position of intermediate items
-            #
-            # e.g., if moving an item from 2 to 5,
-            # move [3, 4, 5] to [2, 3, 4]
-            items = scope.where(
-              "#{quoted_position_column_with_table_name} > ?", old_position
-            ).where(
-              "#{quoted_position_column_with_table_name} <= ?", new_position
-            )
+          Thread.new do
+            if old_position < new_position
+              # Decrement position of intermediate items
+              #
+              # e.g., if moving an item from 2 to 5,
+              # move [3, 4, 5] to [2, 3, 4]
+              items = scope.where(
+                "#{quoted_position_column_with_table_name} > ?", old_position
+              ).where(
+                "#{quoted_position_column_with_table_name} <= ?", new_position
+              )
 
-            if sequential_updates?
-              items.reorder(acts_as_list_order_argument(:asc)).decrement_sequentially
+              if sequential_updates?
+                items.reorder(acts_as_list_order_argument(:asc)).decrement_sequentially
+              else
+                items.decrement_all
+              end
             else
-              items.decrement_all
-            end
-          else
-            # Increment position of intermediate items
-            #
-            # e.g., if moving an item from 5 to 2,
-            # move [2, 3, 4] to [3, 4, 5]
-            items = scope.where(
-              "#{quoted_position_column_with_table_name} >= ?", new_position
-            ).where(
-              "#{quoted_position_column_with_table_name} < ?", old_position
-            )
+              # Increment position of intermediate items
+              #
+              # e.g., if moving an item from 5 to 2,
+              # move [2, 3, 4] to [3, 4, 5]
+              items = scope.where(
+                "#{quoted_position_column_with_table_name} >= ?", new_position
+              ).where(
+                "#{quoted_position_column_with_table_name} < ?", old_position
+              )
 
-            if sequential_updates?
-              items.reorder(acts_as_list_order_argument(:desc)).increment_sequentially
-            else
-              items.increment_all
+              if sequential_updates?
+                items.reorder(acts_as_list_order_argument(:desc)).increment_sequentially
+              else
+                items.increment_all
+              end
             end
+
+            self.class.try(:reindex_curation, (items.ids << avoid_id))
           end
         end
 
